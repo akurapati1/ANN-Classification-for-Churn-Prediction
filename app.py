@@ -1,66 +1,51 @@
+"""Streamlit UI for the bank-customer churn ANN."""
 import streamlit as st
-import numpy as np
-import tensorflow as tf 
 from tensorflow.keras.models import load_model
 
-from sklearn.preprocessing import StandardScaler, LabelEncoder, OneHotEncoder
-import pandas as pd
-import pickle
+from churn_features import BASE_DIR, build_features, load_preprocessors
 
-model = load_model('model.h5')
+THRESHOLD = 0.5
 
 
-with open('label_encoder_gender.pkl', 'rb') as file:
-    label_encoder_gender = pickle.load(file)
-with open('one_hot_encoder_geo.pkl', 'rb') as file:
-    one_hot_encoder_geo = pickle.load(file)
-with open('scaler.pkl', 'rb') as file:
-    scalar = pickle.load(file)
-
-st.title('Customer Churn Prediction')
+@st.cache_resource
+def load_artifacts():
+    model = load_model(BASE_DIR / "model.h5")
+    return (model, *load_preprocessors())
 
 
-geography = st.selectbox('Geography', one_hot_encoder_geo.categories_[0])
-gender = st.selectbox('Gender', label_encoder_gender.classes_)
-age =st.slider('Age', 18, 100)
-balance = st.number_input("Balance")
-credit_score = st.number_input('Credit Score')
-estimated_salary = st.number_input('Estimated Salary')
-tenure = st.slider('tenure', 0, 10)
-num_of_products = st.slider('Number of Products', 1, 4)
-has_Cr_card = st.selectbox('Has Credit Card', [0, 1])
-is_active_member = st.selectbox('Is Active Member', [0,1])
+model, gender_encoder, geo_encoder, scaler = load_artifacts()
 
-input_data = pd.DataFrame({
-    'CreditScore': [credit_score],
-    'Geography': geography,
-    'Gender': [label_encoder_gender.transform([gender])[0]],
-    'Age': [age],
-    'Tenure': [tenure],
-    'Balance': [balance],
-    'NumOfProducts': [num_of_products],
-    'HasCrCard': [has_Cr_card],
-    'IsActiveMember': [is_active_member],
-    'EstimatedSalary': [estimated_salary]
-})
+st.title("Customer Churn Prediction")
+st.caption("A neural network trained on the Churn_Modelling dataset (~86% validation accuracy).")
 
-geo_encoded = one_hot_encoder_geo.transform([[geography]]).toarray()
-geo_encoded_df = pd.DataFrame(geo_encoded, columns=one_hot_encoder_geo.get_feature_names_out(['Geography']))
+col1, col2 = st.columns(2)
+with col1:
+    geography = st.selectbox("Geography", geo_encoder.categories_[0])
+    gender = st.selectbox("Gender", gender_encoder.classes_)
+    age = st.slider("Age", 18, 100, 40)
+    tenure = st.slider("Tenure (years)", 0, 10, 5)
+    num_of_products = st.slider("Number of products", 1, 4, 1)
+with col2:
+    credit_score = st.number_input("Credit score", min_value=300, max_value=900, value=650)
+    balance = st.number_input("Balance", min_value=0.0, value=0.0, step=1000.0)
+    estimated_salary = st.number_input("Estimated salary", min_value=0.0, value=50000.0, step=1000.0)
+    has_cr_card = st.selectbox("Has credit card", [0, 1], format_func=lambda v: "Yes" if v else "No")
+    is_active_member = st.selectbox("Is active member", [0, 1], format_func=lambda v: "Yes" if v else "No")
 
+features = build_features(
+    {
+        "geography": geography, "gender": gender, "age": age, "tenure": tenure, "balance": balance,
+        "credit_score": credit_score, "estimated_salary": estimated_salary, "num_of_products": num_of_products,
+        "has_cr_card": has_cr_card, "is_active_member": is_active_member,
+    },
+    gender_encoder, geo_encoder, scaler,
+)
+probability = float(model.predict(features, verbose=0)[0][0])
 
-input_data = pd.concat([input_data.reset_index(drop=True), geo_encoded_df], axis=1)
-input_data = input_data.drop(['Geography'], axis=1)
-
-
-input_data_scaled = scalar.transform(input_data)
-
-prediction = model.predict(input_data_scaled)
-
-prediction_proba = prediction[0][0]
-
-if prediction_proba >0.5:
-    st.write("The customer is likely to exit the bank")
+st.subheader("Prediction")
+st.progress(min(max(probability, 0.0), 1.0))
+if probability > THRESHOLD:
+    st.error("The customer is likely to exit the bank.")
 else:
-    st.write("The coustomer is more likely to stay with the bank")
-
-st.write(f'Exiting probability: {prediction_proba:.2f}')
+    st.success("The customer is more likely to stay with the bank.")
+st.write(f"Exit probability: **{probability:.2%}**")

@@ -11,6 +11,8 @@ This project implements an Artificial Neural Network (ANN) to predict customer c
 - [Installation](#installation)
 - [Usage](#usage)
 - [Results](#results)
+- [Project structure](#project-structure)
+- [Testing](#testing)
 - [Dependencies](#dependencies)
 - [Contributing](#contributing)
 - [License](#license)
